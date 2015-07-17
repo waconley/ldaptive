@@ -327,7 +327,9 @@ public class AuthenticatorTest extends AbstractTest
     }
 
     resolver.setAllowMultipleDns(true);
-    AssertJUnit.assertEquals(testLdapEntry.getDn().toLowerCase(), auth.resolveDn(user).toLowerCase().split(":")[1]);
+    AssertJUnit.assertEquals(
+      testLdapEntry.getDn().toLowerCase(),
+      AggregateDnResolver.decodeDn(auth.resolveDn(user))[0].toLowerCase().split(":")[1]);
   }
 
 
@@ -705,12 +707,12 @@ public class AuthenticatorTest extends AbstractTest
     sr2.setUserFilter(sr1.getUserFilter());
     sr2.setUserFilterParameters(sr1.getUserFilterParameters());
 
-    final Map<String, DnResolver> resolvers = new HashMap<>();
-    resolvers.put("system1", sr1);
-    resolvers.put("system2", sr2);
+    final Map<String, DnResolver> dnResolvers = new HashMap<>();
+    dnResolvers.put("system1", sr1);
+    dnResolvers.put("system2", sr2);
 
-    final AggregateDnResolver resolver = new AggregateDnResolver(resolvers);
-    auth.setDnResolver(resolver);
+    final AggregateDnResolver dnResolver = new AggregateDnResolver(dnResolvers);
+    auth.setDnResolver(dnResolver);
 
     final Map<String, AuthenticationHandler> handlers = new HashMap<>();
     handlers.put("system1", auth.getAuthenticationHandler());
@@ -728,14 +730,34 @@ public class AuthenticatorTest extends AbstractTest
     AssertJUnit.assertNull(response.getResultCode());
     AssertJUnit.assertNotNull(response.getMessage());
 
+    // test single DN
+    sr2.setUserFilter("(objectClass=NoSuchObjectClass)");
+    response = auth.authenticate(new AuthenticationRequest(user, new Credential(credential)));
+    AssertJUnit.assertTrue(response.getResult());
+    AssertJUnit.assertEquals(
+      AuthenticationResultCode.AUTHENTICATION_HANDLER_SUCCESS,
+      response.getAuthenticationResultCode());
+    AssertJUnit.assertEquals(ResultCode.SUCCESS, response.getResultCode());
+
+    // test auth with return attributes
+    String expected = TestUtils.readFileIntoString(ldifFile);
+    response = auth.authenticate(new AuthenticationRequest(user, new Credential(credential), returnAttrs.split("\\|")));
+    AssertJUnit.assertTrue(response.getResult());
+    AssertJUnit.assertEquals(
+      AuthenticationResultCode.AUTHENTICATION_HANDLER_SUCCESS,
+      response.getAuthenticationResultCode());
+    AssertJUnit.assertEquals(ResultCode.SUCCESS, response.getResultCode());
+    TestUtils.assertEquals(TestUtils.convertLdifToResult(expected), new SearchResult(response.getLdapEntry()));
+
     // test multiple DNs
+    sr2.setUserFilter(sr1.getUserFilter());
     try {
       auth.authenticate(new AuthenticationRequest(user, new Credential(INVALID_PASSWD)));
       AssertJUnit.fail("Should have thrown LdapException");
     } catch (Exception e) {
       AssertJUnit.assertEquals(LdapException.class, e.getClass());
     }
-    resolver.setAllowMultipleDns(true);
+    dnResolver.setAllowMultipleDns(true);
 
     // test failed auth with return attributes
     response = auth.authenticate(
@@ -754,7 +776,7 @@ public class AuthenticatorTest extends AbstractTest
     AssertJUnit.assertEquals(ResultCode.SUCCESS, response.getResultCode());
 
     // test auth with return attributes
-    final String expected = TestUtils.readFileIntoString(ldifFile);
+    expected = TestUtils.readFileIntoString(ldifFile);
     response = auth.authenticate(new AuthenticationRequest(user, new Credential(credential), returnAttrs.split("\\|")));
     AssertJUnit.assertTrue(response.getResult());
     AssertJUnit.assertEquals(

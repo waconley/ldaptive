@@ -12,6 +12,7 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.ldaptive.LdapException;
+import org.ldaptive.LdapUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -137,14 +138,14 @@ public class AggregateDnResolver implements DnResolver
         });
       logger.debug("submitted DN resolver {}", entry.getValue());
     }
-    for (DnResolver resolver : dnResolvers.values()) {
+    for (int i = 0; i < dnResolvers.size(); i++) {
       try {
-        logger.debug("waiting on DN resolver {}", resolver);
+        logger.debug("waiting on DN resolver #{}", i);
 
         final String dn = cs.take().get();
-        logger.debug("DN resolver {} resolved dn {}", resolver, dn);
+        logger.debug("resolved dn {}", dn);
         if (dn != null) {
-          results.add(dn);
+          results.add(LdapUtils.base64Encode(dn));
         }
       } catch (ExecutionException e) {
         if (e.getCause() instanceof LdapException) {
@@ -158,10 +159,36 @@ public class AggregateDnResolver implements DnResolver
         logger.warn("InterruptedException thrown, ignoring", e);
       }
     }
+    if (results.isEmpty()) {
+      return null;
+    }
     if (results.size() > 1 && !allowMultipleDns) {
       throw new LdapException("Found more than (1) DN for: " + user);
     }
-    return results.isEmpty() ? null : results.get(0);
+    final StringBuilder sb = new StringBuilder();
+    for (String dn : results) {
+      sb.append(dn).append(":");
+    }
+    sb.deleteCharAt(sb.length() - 1);
+    return sb.toString();
+  }
+
+
+  /**
+   * DNs are encoded in base64 format to allow for concatenation and the returning of multiple DNs in this component.
+   *
+   * @param  dn  returned from {@link #resolve(String)}
+   *
+   * @return  array of decoded DNs
+   */
+  public static String[] decodeDn(final String dn)
+  {
+    final String[] encodedDns = dn.split(":");
+    final String[] decodedDns = new String[encodedDns.length];
+    for (int i = 0; i < encodedDns.length; i++) {
+      decodedDns[i] = LdapUtils.utf8Encode(LdapUtils.base64Decode(encodedDns[i]));
+    }
+    return decodedDns;
   }
 
 
@@ -184,10 +211,24 @@ public class AggregateDnResolver implements DnResolver
   }
 
 
+  @Override
+  public String toString()
+  {
+    return
+      String.format(
+        "[%s@%d::service=%s, dnResolvers=%s, allowMultipleDns=%s",
+        getClass().getName(),
+        hashCode(),
+        service,
+        dnResolvers,
+        allowMultipleDns);
+  }
+
+
   /**
    * Used in conjunction with an {@link AggregateDnResolver} to authenticate the resolved DN. In particular, the
    * resolved DN is expected to be of the form: label:DN where the label indicates the authentication handler to use.
-   * This class only invokes one authentication handler that matches the label found on the DN.
+   * This class will invoke an authentication handler for each DN, returning the first successful response.
    */
   public static class AuthenticationHandler implements org.ldaptive.auth.AuthenticationHandler
   {
@@ -241,13 +282,34 @@ public class AggregateDnResolver implements DnResolver
     public AuthenticationHandlerResponse authenticate(final AuthenticationCriteria criteria)
       throws LdapException
     {
-      final String[] labeledDn = criteria.getDn().split(":", 2);
-      final org.ldaptive.auth.AuthenticationHandler ah = authenticationHandlers.get(labeledDn[0]);
-      if (ah == null) {
-        throw new LdapException("Could not find authentication handler for label: " + labeledDn[0]);
+      AuthenticationHandlerResponse response = null;
+      final String[] decodedDns = decodeDn(criteria.getDn());
+      for (final String dn : decodedDns) {
+        final String[] labeledDn = dn.split(":", 2);
+        final org.ldaptive.auth.AuthenticationHandler ah = authenticationHandlers.get(labeledDn[0]);
+        if (ah == null) {
+          throw new LdapException("Could not find authentication handler for label: " + labeledDn[0]);
+        }
+        criteria.setDn(labeledDn[1]);
+        response = ah.authenticate(criteria);
+        logger.debug("criteria {} produced authentication handler response {}", criteria, response);
+        if (response.getResult()) {
+          break;
+        }
       }
-      criteria.setDn(labeledDn[1]);
-      return ah.authenticate(criteria);
+      return response;
+    }
+
+
+    @Override
+    public String toString()
+    {
+      return
+        String.format(
+          "[%s@%d::authenticationHandlers=%s",
+          getClass().getName(),
+          hashCode(),
+          authenticationHandlers);
     }
   }
 }
