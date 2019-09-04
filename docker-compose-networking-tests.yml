@@ -13,7 +13,7 @@ services:
     command: >
       bash -c "cd /apps/ldaptive &&
       javac -cp /root/.m2/repository/io/netty/netty-all/4.1.37.Final/netty-all-4.1.37.Final.jar:/root/.m2/repository/org/slf4j/slf4j-api/1.7.25/slf4j-api-1.7.25.jar:/root/.m2/repository/org/ldaptive/ldaptive/2.0.0-SNAPSHOT/ldaptive-2.0.0-SNAPSHOT.jar:. Ldaptive.java &&
-      java -Dhost=ldap://ldap-test:389 -cp /root/.m2/repository/io/netty/netty-all/4.1.37.Final/netty-all-4.1.37.Final.jar:/root/.m2/repository/org/slf4j/slf4j-api/1.7.25/slf4j-api-1.7.25.jar:/root/.m2/repository/org/ldaptive/ldaptive/2.0.0-SNAPSHOT/ldaptive-2.0.0-SNAPSHOT.jar:. Ldaptive"
+      java -cp /root/.m2/repository/io/netty/netty-all/4.1.37.Final/netty-all-4.1.37.Final.jar:/root/.m2/repository/org/slf4j/slf4j-api/1.7.25/slf4j-api-1.7.25.jar:/root/.m2/repository/org/ldaptive/ldaptive/2.0.0-SNAPSHOT/ldaptive-2.0.0-SNAPSHOT.jar:. Ldaptive"
 
   ldap-test:
     image: code.vt.edu:5005/middleware/edldap-deploy-env/ldap-test-openldap:latest

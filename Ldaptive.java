@@ -23,8 +23,21 @@ public final class Ldaptive {
       SearchOperation bind = new SearchOperation(
         DefaultConnectionFactory.builder()
           .config(ConnectionConfig.builder()
-            .url("ldap://ldap-test:389")
-            .useStartTLS(false)
+            .url("ldap://ldap-test")
+            .useStartTLS(true)
+            .connectTimeout(Duration.ofSeconds(5))
+            .responseTimeout(Duration.ofSeconds(5))
+            .autoReconnect(true)
+            .autoReconnectCondition(attempt -> {
+              if (attempt <= 5) {
+                try {
+                  final Duration sleepTime = Duration.ofSeconds(3).multipliedBy(attempt);
+                  Thread.sleep(sleepTime.toMillis());
+                } catch (InterruptedException ie) {}
+                return true;
+              }
+              return false;})
+            .sslConfig(SslConfig.builder().trustManagers(new AllowAnyTrustManager()).build())
             .connectionInitializer(BindConnectionInitializer.builder()
               .dn("uid=1,ou=test,dc=vt,dc=edu")
               .credential("VKSxXwlU7YssGl1foLMH2mGMWkifbODb1djfJ4t2")
