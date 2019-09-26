@@ -1,10 +1,9 @@
 /* See LICENSE for licensing and NOTICE for copyright. */
 package org.ldaptive;
 
-import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.function.Function;
 
 /**
  * Connection strategy that attempts hosts ordered exactly the way they are configured. This means that the first host
@@ -15,36 +14,37 @@ import java.util.stream.Stream;
 public class ActivePassiveConnectionStrategy extends AbstractConnectionStrategy
 {
 
-  /** LDAP URLs. */
-  private List<LdapURL> ldapURLs;
+  /** Custom iterator function. */
+  private final Function<List<LdapURL>, Iterator<LdapURL>> iterFunction;
 
 
-  @Override
-  public boolean isInitialized()
+  /** Default constructor. */
+  public ActivePassiveConnectionStrategy()
   {
-    return ldapURLs != null;
+    this(null);
+  }
+
+
+  /**
+   * Creates a new active passive connection strategy.
+   *
+   * @param  function  that produces a custom iterator
+   */
+  public ActivePassiveConnectionStrategy(final Function<List<LdapURL>, Iterator<LdapURL>> function)
+  {
+    iterFunction = function;
   }
 
 
   @Override
-  public void initialize(final String urls)
-  {
-    if (urls.contains(" ")) {
-      ldapURLs = Stream.of(urls.split(" ")).map(LdapURL::new).collect(Collectors.collectingAndThen(
-        Collectors.toList(),
-        Collections::unmodifiableList));
-    } else {
-      ldapURLs = Collections.singletonList(new LdapURL(urls));
-    }
-  }
-
-
-  @Override
-  public List<LdapURL> apply()
+  public Iterator<LdapURL> iterator()
   {
     if (!isInitialized()) {
       throw new IllegalStateException("Strategy is not initialized");
     }
-    return ldapURLs;
+    if (iterFunction != null) {
+      return iterFunction.apply(ldapURLSet.getUrls());
+    }
+    return new DefaultLdapURLIterator(ldapURLSet.getUrls());
   }
 }

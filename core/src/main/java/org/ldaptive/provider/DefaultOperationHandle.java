@@ -144,10 +144,13 @@ public class DefaultOperationHandle<Q extends Request, S extends Result> impleme
     try {
       if (!responseDone.await(responseTimeout.toMillis(), TimeUnit.MILLISECONDS)) {
         abandon(new TimeoutException("No response received in " + responseTimeout.toMillis() + "ms"));
+        logger.trace("await abandoned handle {}", this);
       } else if (result != null && exception == null) {
+        logger.trace("await received result {} for handle {}", result, this);
         return result;
       }
     } catch (InterruptedException e) {
+      logger.trace("await interrupted for handle {} waiting for response", this, e);
       exception(e);
     }
     if (exception == null) {
@@ -272,7 +275,11 @@ public class DefaultOperationHandle<Q extends Request, S extends Result> impleme
         } finally {
           exception(cause);
         }
+      } else {
+        exception(cause);
       }
+    } else {
+      exception(cause);
     }
   }
 
@@ -294,10 +301,14 @@ public class DefaultOperationHandle<Q extends Request, S extends Result> impleme
   }
 
 
-  @Override
-  public Instant getCreationTime()
+  /**
+   * Returns the message ID assigned to this handle.
+   *
+   * @return  message ID
+   */
+  public int getMessageID()
   {
-    return creationTime;
+    return messageID;
   }
 
 
@@ -414,7 +425,7 @@ public class DefaultOperationHandle<Q extends Request, S extends Result> impleme
         try {
           func.accept(r);
         } catch (Exception ex) {
-          logger.warn("Result function {} threw an exception", func, ex);
+          logger.warn("Result function {} in handle {} threw an exception", func, this, ex);
         }
       }
       consumedMessage();
@@ -436,7 +447,7 @@ public class DefaultOperationHandle<Q extends Request, S extends Result> impleme
         try {
           func.accept(c);
         } catch (Exception ex) {
-          logger.warn("Control consumer {} threw an exception", func, ex);
+          logger.warn("Control consumer {} in handle {} threw an exception", func, this, ex);
         }
       }
     }
@@ -455,7 +466,7 @@ public class DefaultOperationHandle<Q extends Request, S extends Result> impleme
         try {
           func.accept(url);
         } catch (Exception ex) {
-          logger.warn("Referral consumer {} threw an exception", func, ex);
+          logger.warn("Referral consumer {} in handle {} threw an exception", func, this, ex);
         }
       }
     }
@@ -474,7 +485,7 @@ public class DefaultOperationHandle<Q extends Request, S extends Result> impleme
         try {
           func.accept(r);
         } catch (Exception ex) {
-          logger.warn("Intermediate response consumer {} threw an exception", func, ex);
+          logger.warn("Intermediate response consumer {} in handle {} threw an exception", func, this, ex);
         }
       }
       consumedMessage();
@@ -494,7 +505,7 @@ public class DefaultOperationHandle<Q extends Request, S extends Result> impleme
         try {
           func.accept(u);
         } catch (Exception ex) {
-          logger.warn("Unsolicited notification consumer {} threw an exception", func, ex);
+          logger.warn("Unsolicited notification consumer {} in handle {} threw an exception", func, this, ex);
         }
       }
       consumedMessage();
@@ -522,7 +533,7 @@ public class DefaultOperationHandle<Q extends Request, S extends Result> impleme
       try {
         onException.accept(ldapEx);
       } catch (Exception ex) {
-        logger.warn("Exception consumer {} threw an exception", onException, ex);
+        logger.warn("Exception consumer {} in handle {} threw an exception", onException, this, ex);
       }
     }
     exception = ldapEx;
@@ -545,16 +556,19 @@ public class DefaultOperationHandle<Q extends Request, S extends Result> impleme
    */
   private void complete()
   {
+    if (receivedTime != null) {
+      logger.warn("Operation already complete for handle {}", this);
+      return;
+    }
     try {
       responseDone.countDown();
     } finally {
       receivedTime = Instant.now();
-      connection.done(this);
       if (onComplete != null) {
         try {
           onComplete.execute();
         } catch (Exception ex) {
-          logger.warn("Complete consumer {} threw an exception", onComplete, ex);
+          logger.warn("Complete consumer {} in handle {} threw an exception", onComplete, this, ex);
         }
       }
       connection = null;

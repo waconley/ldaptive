@@ -2,6 +2,7 @@
 package org.ldaptive;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.function.Predicate;
 import org.ldaptive.ssl.SslConfig;
 
@@ -22,11 +23,18 @@ public class ConnectionConfig extends AbstractConfig
   /** Duration of time to wait for responses. */
   private Duration responseTimeout = Duration.ofMinutes(1);
 
-  /** Whether to automatically reconnect to the server when a connection is lost. */
-  private boolean autoReconnect;
+  /** Whether to automatically reconnect to the server when a connection is lost. Default is true. */
+  private boolean autoReconnect = true;
 
-  /** Condition used to determine whether another reconnect attempt should be made. Default makes a single attempt. */
-  private Predicate<Integer> autoReconnectCondition = attempt -> attempt == 1;
+  /**
+   * Condition used to determine whether another reconnect attempt should be made. Default makes a single attempt only
+   * if the connection was previously opened.
+   */
+  private Predicate<RetryMetadata> autoReconnectCondition =
+    metadata -> metadata.getSuccessTime() != null && metadata.getAttempts() == 0;
+
+  /** Whether pending operations should be replayed after a reconnect. Default is true. */
+  private boolean autoReplay = true;
 
   /** Configuration for SSL and startTLS connections. */
   private SslConfig sslConfig;
@@ -34,11 +42,11 @@ public class ConnectionConfig extends AbstractConfig
   /** Connect to LDAP using startTLS. */
   private boolean useStartTLS;
 
-  /** Connection initializer to execute on {@link Connection#open()}. */
-  private ConnectionInitializer connectionInitializer;
+  /** Connection initializers to execute on {@link Connection#open()}. */
+  private ConnectionInitializer[] connectionInitializers;
 
   /** Connection strategy. */
-  private ConnectionStrategy connectionStrategy;
+  private ConnectionStrategy connectionStrategy = new ActivePassiveConnectionStrategy();
 
 
   /** Default constructor. */
@@ -82,7 +90,7 @@ public class ConnectionConfig extends AbstractConfig
 
 
   /**
-   * Returns the connect timeout. If this value is null, then the provider default will be used.
+   * Returns the connect timeout.
    *
    * @return  timeout
    */
@@ -109,7 +117,7 @@ public class ConnectionConfig extends AbstractConfig
 
 
   /**
-   * Returns the response timeout. If this value is null, then the provider default will be used.
+   * Returns the response timeout.
    *
    * @return  timeout
    */
@@ -147,7 +155,7 @@ public class ConnectionConfig extends AbstractConfig
 
 
   /**
-   * Sets whether connections with attempt to reconnect.
+   * Sets whether connections will attempt to reconnect when unexpectedly closed.
    *
    * @param  b  whether to automatically reconnect when a connection is lost
    */
@@ -164,7 +172,7 @@ public class ConnectionConfig extends AbstractConfig
    *
    * @return  auto reconnect condition
    */
-  public Predicate<Integer> getAutoReconnectCondition()
+  public Predicate<RetryMetadata> getAutoReconnectCondition()
   {
     return autoReconnectCondition;
   }
@@ -175,11 +183,35 @@ public class ConnectionConfig extends AbstractConfig
    *
    * @param  predicate  to determine whether to attempt a reconnect
    */
-  public void setAutoReconnectCondition(final Predicate<Integer> predicate)
+  public void setAutoReconnectCondition(final Predicate<RetryMetadata> predicate)
   {
     checkImmutable();
     logger.trace("setting autoReconnectCondition: {}", predicate);
     autoReconnectCondition = predicate;
+  }
+
+
+  /**
+   * Returns whether operations should be replayed after a reconnect.
+   *
+   * @return  whether to auto replay
+   */
+  public boolean getAutoReplay()
+  {
+    return autoReplay;
+  }
+
+
+  /**
+   * Sets whether operations will be replayed after a reconnect.
+   *
+   * @param  b  whether to replay operations
+   */
+  public void setAutoReplay(final boolean b)
+  {
+    checkImmutable();
+    logger.trace("setting autoReplay: {}", b);
+    autoReplay = b;
   }
 
 
@@ -232,26 +264,26 @@ public class ConnectionConfig extends AbstractConfig
 
 
   /**
-   * Returns the connection initializer.
+   * Returns the connection initializers.
    *
-   * @return  connection initializer
+   * @return  connection initializers
    */
-  public ConnectionInitializer getConnectionInitializer()
+  public ConnectionInitializer[] getConnectionInitializers()
   {
-    return connectionInitializer;
+    return connectionInitializers;
   }
 
 
   /**
-   * Sets the connection initializer.
+   * Sets the connection initializers.
    *
-   * @param  initializer  connection initializer
+   * @param  initializers  connection initializers
    */
-  public void setConnectionInitializer(final ConnectionInitializer initializer)
+  public void setConnectionInitializers(final ConnectionInitializer... initializers)
   {
     checkImmutable();
-    logger.trace("setting connectionInitializer: {}", initializer);
-    connectionInitializer = initializer;
+    logger.trace("setting connectionInitializers: {}", Arrays.toString(initializers));
+    connectionInitializers = initializers;
   }
 
 
@@ -294,9 +326,10 @@ public class ConnectionConfig extends AbstractConfig
     cc.setResponseTimeout(config.getResponseTimeout());
     cc.setAutoReconnect(config.getAutoReconnect());
     cc.setAutoReconnectCondition(config.getAutoReconnectCondition());
+    cc.setAutoReplay(config.getAutoReplay());
     cc.setSslConfig(config.getSslConfig() != null ? SslConfig.copy(config.getSslConfig()) : null);
     cc.setUseStartTLS(config.getUseStartTLS());
-    cc.setConnectionInitializer(config.getConnectionInitializer());
+    cc.setConnectionInitializers(config.getConnectionInitializers());
     cc.setConnectionStrategy(config.getConnectionStrategy());
     return cc;
   }
@@ -312,9 +345,10 @@ public class ConnectionConfig extends AbstractConfig
       .append("responseTimeout=").append(responseTimeout).append(", ")
       .append("autoReconnect=").append(autoReconnect).append(", ")
       .append("autoReconnectCondition=").append(autoReconnectCondition).append(", ")
+      .append("autoReplay=").append(autoReplay).append(", ")
       .append("sslConfig=").append(sslConfig).append(", ")
       .append("useStartTLS=").append(useStartTLS).append(", ")
-      .append("connectionInitializer=").append(connectionInitializer).append(", ")
+      .append("connectionInitializers=").append(Arrays.toString(connectionInitializers)).append(", ")
       .append("connectionStrategy=").append(connectionStrategy).toString();
   }
 
@@ -368,9 +402,16 @@ public class ConnectionConfig extends AbstractConfig
     }
 
 
-    public Builder autoReconnectCondition(final Predicate<Integer> predicate)
+    public Builder autoReconnectCondition(final Predicate<RetryMetadata> predicate)
     {
       object.setAutoReconnectCondition(predicate);
+      return this;
+    }
+
+
+    public Builder autoReplay(final boolean b)
+    {
+      object.setAutoReplay(b);
       return this;
     }
 
@@ -389,9 +430,9 @@ public class ConnectionConfig extends AbstractConfig
     }
 
 
-    public Builder connectionInitializer(final ConnectionInitializer initializer)
+    public Builder connectionInitializers(final ConnectionInitializer... initializers)
     {
-      object.setConnectionInitializer(initializer);
+      object.setConnectionInitializers(initializers);
       return this;
     }
 
