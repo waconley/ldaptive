@@ -8,7 +8,6 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import org.ldaptive.ConnectionConfig;
 import org.ldaptive.InitialRetryMetadata;
-import org.ldaptive.LdapException;
 import org.ldaptive.SearchRequest;
 import org.ldaptive.SingleConnectionFactory;
 import org.ldaptive.extended.SyncInfoMessage;
@@ -147,8 +146,8 @@ public class SyncReplRunner
         throw new RuntimeException("Start aborted from " + onStart);
       }
       BlockingQueue<SyncReplItem> results = null;
+      logger.info("Runner {} started", this);
       while (run) {
-        logger.info("Runner {} started", this);
         try {
           if (!((SingleConnectionFactory) syncReplClient.getConnectionFactory()).isInitialized()) {
             ((SingleConnectionFactory) syncReplClient.getConnectionFactory()).initialize();
@@ -197,7 +196,7 @@ public class SyncReplRunner
     run = false;
     try {
       syncReplClient.cancel();
-    } catch (LdapException e) {
+    } catch (Exception e) {
       logger.warn("Could not cancel sync repl request", e);
     }
     syncReplClient.getConnectionFactory().close();
@@ -227,8 +226,9 @@ public class SyncReplRunner
    * the supplied config makes the following modifications:
    * <ul>
    *   <li>{@link ConnectionConfig#setAutoReconnect(boolean)} to true</li>
-   *   <li>{@link ConnectionConfig#setAutoReconnectCondition(Predicate)} to sleep and return true</li>
-   *   <li>Adds the supplied connection initializer to the connection config</li>
+   *   <li>{@link ConnectionConfig#setAutoReconnectCondition(Predicate)} to sleep and return true for
+   *   InitialRetryMetadata</li>
+   *   <li>{@link ConnectionConfig#setReconnectTimeout(Duration) to null}</li>
    * </ul>
    *
    * @param  cc  connection configuration
@@ -249,6 +249,7 @@ public class SyncReplRunner
       }
       return false;
     });
+    newConfig.setAutoReplay(false);
     final SingleConnectionFactory factory = new SingleConnectionFactory(newConfig);
     factory.setFailFastInitialize(true);
     return factory;
