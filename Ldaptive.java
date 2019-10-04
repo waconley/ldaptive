@@ -20,31 +20,28 @@ public final class Ldaptive {
   private static void doSearch()
   {
     try {
-      SearchOperation bind = new SearchOperation(
-        DefaultConnectionFactory.builder()
-          .config(ConnectionConfig.builder()
-            .url("ldap://ldap-test")
-            .useStartTLS(true)
-            .connectTimeout(Duration.ofSeconds(5))
-            .responseTimeout(Duration.ofSeconds(5))
-            .autoReconnect(true)
-            .autoReconnectCondition(attempt -> {
-              if (attempt <= 5) {
-                try {
-                  final Duration sleepTime = Duration.ofSeconds(3).multipliedBy(attempt);
-                  Thread.sleep(sleepTime.toMillis());
-                } catch (InterruptedException ie) {}
-                return true;
-              }
-              return false;})
-            .sslConfig(SslConfig.builder().trustManagers(new AllowAnyTrustManager()).build())
-            .connectionInitializer(BindConnectionInitializer.builder()
-              .dn("uid=1,ou=test,dc=vt,dc=edu")
-              .credential("VKSxXwlU7YssGl1foLMH2mGMWkifbODb1djfJ4t2")
-              .build())
-            .build())
-          .build(),
-        "dc=vt,dc=edu");
+      final SingleConnectionFactory cf = SingleConnectionFactory.builder()
+        .config(ConnectionConfig.builder()
+          .url("ldap://ldap-test")
+          .useStartTLS(true)
+          .connectTimeout(Duration.ofSeconds(60))
+          .reconnectTimeout(Duration.ofSeconds(90))
+          .responseTimeout(Duration.ofSeconds(60))
+          .autoReconnect(true)
+          .autoReconnectCondition(metadata -> {
+            if (metadata.getAttempts() <= 5) {
+              try {
+                final Duration sleepTime = Duration.ofSeconds(3).multipliedBy(metadata.getAttempts());
+                Thread.sleep(sleepTime.toMillis());
+              } catch (InterruptedException ie) {}
+              return true;
+            }
+            return false;})
+          .sslConfig(SslConfig.builder().trustManagers(new AllowAnyTrustManager()).build())
+          .build())
+        .build();
+      cf.initialize();
+      SearchOperation bind = new SearchOperation(cf, "dc=vt,dc=edu");
       SearchResponse response = bind.execute("(uid=1)");
       System.out.println("Search #1: " + response.toString());
       System.out.println("Waiting...");

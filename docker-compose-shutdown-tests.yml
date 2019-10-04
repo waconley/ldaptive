@@ -42,7 +42,7 @@ services:
     depends_on:
       - ldaptive
       - ldap-test
-    command: stop --time 5 --restart 1s ldaptive_ldap-test_1
+    command: stop --time 5 --restart --duration 20s ldaptive_ldap-test_1
 
 networks:
   ldap_net:
